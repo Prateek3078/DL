@@ -1,102 +1,106 @@
-import os
-os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 import numpy as np
-import matplotlib.pyplot as plt
-from tensorflow.keras.datasets import mnist
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense
+from sklearn.datasets import fetch_openml
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import OneHotEncoder
 
+# Load dataset
+mnist = fetch_openml('mnist_784', version=1)
 
-# Dataset Handling 
+X = mnist.data.values / 255.0
+y = mnist.target.astype(int).values.reshape(-1,1)
 
-# Load MNIST dataset
-(x_train, y_train), (x_test, y_test) = mnist.load_data()
+# One hot encoding
+encoder = OneHotEncoder(sparse=False)
+y = encoder.fit_transform(y)
 
-print("Original Shape of x_train:", x_train.shape)
-print("Original Shape of x_test :", x_test.shape)
+# Train test split
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
 
-# Reshape (28x28 -> 784) and Normalize (0-255 -> 0-1)
-x_train = x_train.reshape(-1, 784) / 255.0
-x_test  = x_test.reshape(-1, 784) / 255.0
+# Activation functions
+def relu(x):
+    return np.maximum(0, x)
 
-print("Reshaped Shape of x_train:", x_train.shape)
-print("Reshaped Shape of x_test :", x_test.shape)
+def relu_derivative(x):
+    return x > 0
 
+def softmax(x):
+    exp_x = np.exp(x - np.max(x, axis=1, keepdims=True))
+    return exp_x / np.sum(exp_x, axis=1, keepdims=True)
 
+# Network structure
+input_size = 784
+hidden1 = 128
+hidden2 = 64
+output_size = 10
 
-model = Sequential([
-    Dense(128, activation='relu', input_shape=(784,)),  
-    Dense(64, activation='relu'),                       
-    Dense(10, activation='softmax')                      
-])
+# Initialize weights
+W1 = np.random.randn(input_size, hidden1) * 0.01
+b1 = np.zeros((1, hidden1))
 
-print("\nModel Summary:")
-model.summary()
+W2 = np.random.randn(hidden1, hidden2) * 0.01
+b2 = np.zeros((1, hidden2))
 
+W3 = np.random.randn(hidden2, output_size) * 0.01
+b3 = np.zeros((1, output_size))
 
+learning_rate = 0.01
+epochs = 20
 
-model.compile(
-    optimizer='adam',
-    loss='sparse_categorical_crossentropy',
-    metrics=['accuracy']
-)
+for epoch in range(epochs):
 
-# 4. Training the Model 
+    # Forward
+    Z1 = np.dot(X_train, W1) + b1
+    A1 = relu(Z1)
 
-history = model.fit(
-    x_train, y_train,
-    epochs=10,
-    batch_size=32,
-    validation_split=0.1
-)
+    Z2 = np.dot(A1, W2) + b2
+    A2 = relu(Z2)
 
-# 5. Model Evaluation 
+    Z3 = np.dot(A2, W3) + b3
+    A3 = softmax(Z3)
 
-test_loss, test_acc = model.evaluate(x_test, y_test)
+    # Loss
+    loss = -np.mean(y_train * np.log(A3 + 1e-8))
 
-print("\nTest Loss:", test_loss)
-print("Test Accuracy:", test_acc)
+    # Backprop
+    dZ3 = A3 - y_train
+    dW3 = np.dot(A2.T, dZ3)
+    db3 = np.sum(dZ3, axis=0, keepdims=True)
 
+    dA2 = np.dot(dZ3, W3.T)
+    dZ2 = dA2 * relu_derivative(Z2)
+    dW2 = np.dot(A1.T, dZ2)
+    db2 = np.sum(dZ2, axis=0, keepdims=True)
 
-# 6. Visualization 
+    dA1 = np.dot(dZ2, W2.T)
+    dZ1 = dA1 * relu_derivative(Z1)
+    dW1 = np.dot(X_train.T, dZ1)
+    db1 = np.sum(dZ1, axis=0, keepdims=True)
 
-# Plot 1: Training vs Validation Accuracy
-plt.figure(figsize=(8,5))
-plt.plot(history.history['accuracy'], label='Training Accuracy')
-plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
-plt.title("Training vs Validation Accuracy")
-plt.xlabel("Epochs")
-plt.ylabel("Accuracy")
-plt.legend()
-plt.grid(True)
-plt.show()
+    # Update
+    W3 -= learning_rate * dW3
+    b3 -= learning_rate * db3
 
-# Plot 2: Training vs Validation Loss
-plt.figure(figsize=(8,5))
-plt.plot(history.history['loss'], label='Training Loss')
-plt.plot(history.history['val_loss'], label='Validation Loss')
-plt.title("Training vs Validation Loss")
-plt.xlabel("Epochs")
-plt.ylabel("Loss")
-plt.legend()
-plt.grid(True)
-plt.show()
+    W2 -= learning_rate * dW2
+    b2 -= learning_rate * db2
 
-# Plot 3: Loss vs Epochs
-plt.figure(figsize=(8,5))
-plt.plot(history.history['loss'], label='Loss')
-plt.title("Loss vs Epochs")
-plt.xlabel("Epochs")
-plt.ylabel("Loss")
-plt.legend()
-plt.grid(True)
-plt.show()
+    W1 -= learning_rate * dW1
+    b1 -= learning_rate * db1
 
-# 7. Observations and Result Explanation (Mandatory)
+    print("Epoch:", epoch+1, "Loss:", loss)
 
-print("\n---------------- OBSERVATIONS ----------------")
-print("1. The model achieved test accuracy of:", round(test_acc*100, 2), "%")
-print("2. Training accuracy increases with epochs, showing learning progress.")
-print("3. Validation accuracy also increases and remains close to training accuracy.")
-print("4. If validation loss starts increasing while training loss decreases, overfitting occurs.")
-print("5. Here, the model performs well and shows good generalization.")
+# Testing
+Z1 = np.dot(X_test, W1) + b1
+A1 = relu(Z1)
+
+Z2 = np.dot(A1, W2) + b2
+A2 = relu(Z2)
+
+Z3 = np.dot(A2, W3) + b3
+A3 = softmax(Z3)
+
+pred = np.argmax(A3, axis=1)
+true = np.argmax(y_test, axis=1)
+
+accuracy = np.mean(pred == true)
+
+print("Test Accuracy:", accuracy)
